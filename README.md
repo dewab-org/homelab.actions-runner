@@ -46,6 +46,8 @@ The workflow:
 Expected repository configuration:
 
 - Organization or repository secret `HOMELAB_CA_PEM`: the PEM bundle baked into the runner image
+- Organization or repository secret `GHCR_USERNAME`: account name used to push the image
+- Organization or repository secret `GHCR_TOKEN`: token with `write:packages` for `ghcr.io`
 
 ## Quality Checks
 
