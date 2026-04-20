@@ -48,6 +48,8 @@ jobs:
 
           if [ -n "${VAULT_SERVER_CA_PEM:-}" ]; then
             printf '%s\n' "${VAULT_SERVER_CA_PEM}" > "${ca_file}"
+          elif [ -f "certs/homelab-root-ca-bundle.pem" ]; then
+            cp "certs/homelab-root-ca-bundle.pem" "${ca_file}"
           else
             vault_hostport="${VAULT_ADDR#https://}"
             vault_hostport="${vault_hostport%%/*}"

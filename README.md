@@ -64,7 +64,7 @@ Expected repository configuration:
 
 ### Repository Secrets
 
-- `VAULT_SERVER_CA_PEM`: optional PEM for validating Vault itself; if unset, the workflow falls back to the certificate chain presented by `VAULT_ADDR`
+- `VAULT_SERVER_CA_PEM`: optional PEM for validating Vault itself; if unset, the workflow falls back to the bundled homelab CA chain in `certs/homelab-root-ca-bundle.pem`
 
 ## Builder Trust Boundary
 
@@ -77,7 +77,7 @@ That means one of these must be true before the workflow runs:
 
 This is separate from the CA being baked into the ARC runner image. The builder needs Vault trust first; the built image then carries the homelab CA for downstream jobs.
 
-The publish workflow bootstraps Vault TLS trust before `hashicorp/vault-action` runs by preferring `VAULT_SERVER_CA_PEM` and otherwise exporting the certificate chain served by `VAULT_ADDR` through `NODE_EXTRA_CA_CERTS`.
+The publish workflow bootstraps Vault TLS trust before `hashicorp/vault-action` runs by preferring `VAULT_SERVER_CA_PEM`, then the bundled homelab CA chain in `certs/homelab-root-ca-bundle.pem`, and only then falling back to the certificate chain served by `VAULT_ADDR`.
 
 ## Quality Checks
 
