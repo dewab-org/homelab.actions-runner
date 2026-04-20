@@ -1,5 +1,7 @@
 # homelab.actions-runner
 
+[![Publish Runner Image](https://github.com/dewab-org/homelab.actions-runner/actions/workflows/publish-image.yml/badge.svg)](https://github.com/dewab-org/homelab.actions-runner/actions/workflows/publish-image.yml)
+
 Custom GitHub Actions runner image for ARC, published privately to GHCR.
 
 The image extends `ghcr.io/actions/actions-runner:latest`, installs a homelab CA into the container trust store at build time, and adds common infrastructure tooling:
