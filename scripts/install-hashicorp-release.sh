@@ -32,5 +32,5 @@ curl -fsSL -o "${tmpdir}/${archive}" "${base_url}/${archive}"
 curl -fsSL -o "${tmpdir}/SHA256SUMS" "${base_url}/${tool}_${version}_SHA256SUMS"
 
 (cd "${tmpdir}" && grep " ${archive}\$" SHA256SUMS | sha256sum -c -)
-unzip -q "${tmpdir}/${archive}" -d /usr/local/bin
+unzip -qo "${tmpdir}/${archive}" -d /usr/local/bin
 chmod 0755 "/usr/local/bin/${tool}"

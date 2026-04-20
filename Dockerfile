@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
+ARG RUNNER_IMAGE=ghcr.io/actions/actions-runner:latest
+
 FROM debian:bookworm-slim AS hashicorp-builder
 
 ARG PACKER_VERSION=1.14.2
@@ -18,7 +20,6 @@ RUN chmod 0755 /usr/local/bin/install-hashicorp-release.sh \
 RUN /usr/local/bin/install-hashicorp-release.sh packer "${PACKER_VERSION}" \
     && /usr/local/bin/install-hashicorp-release.sh terraform "${TERRAFORM_VERSION}"
 
-ARG RUNNER_IMAGE=ghcr.io/actions/actions-runner:latest
 FROM ${RUNNER_IMAGE}
 
 USER root
@@ -44,17 +45,15 @@ RUN apt-get update \
         python3 \
         python3-pip \
         python3-venv \
-        python3.11 \
-        python3.11-venv \
         rsync \
         sshpass \
+        uidmap \
         unzip \
         xorriso \
         zip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --upgrade pip setuptools wheel \
-    && python3.11 -m venv /opt/ansible-2.15 \
+RUN python3 -m venv /opt/ansible-2.15 \
     && /opt/ansible-2.15/bin/pip install --upgrade pip setuptools wheel \
     && /opt/ansible-2.15/bin/pip install "ansible-core==${ANSIBLE_CORE_VERSION}"
 
