@@ -36,11 +36,7 @@ docker build \
 
 ## GitHub Actions Publishing
 
-The workflow at `.github/workflows/publish-image.yml` runs on a self-hosted Linux runner by default:
-
-- `self-hosted`
-- `linux`
-- `x64`
+The workflow at `.github/workflows/publish-image.yml` runs on the `arc-runners` GitHub Actions runner group with the `x64` label by default.
 
 For manual runs, you can override the third label with the `runner_label` workflow input if your builder uses a different label set.
 
@@ -84,6 +80,8 @@ The repo includes `.pre-commit-config.yaml` and `.github/workflows/pre-commit.ym
 - `gitleaks`
 - `hadolint` for the Dockerfile
 - basic YAML and whitespace checks
+
+Both workflows share the same concurrency group, so only one Actions job from this repository runs at a time.
 
 Local usage:
 

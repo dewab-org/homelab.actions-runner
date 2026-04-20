@@ -21,8 +21,8 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-actions-runner-${{ github.ref }}
-  cancel-in-progress: true
+  group: arc-runners-single-job
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: actions-runner
@@ -33,9 +33,8 @@ env:
 jobs:
   publish:
     runs-on:
-      - self-hosted
-      - linux
-      - ${{ github.event.inputs.runner_label || 'x64' }}
+      group: arc-runners
+      labels: ${{ github.event.inputs.runner_label || 'x64' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

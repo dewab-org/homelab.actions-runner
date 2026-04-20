@@ -9,9 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: arc-runners-single-job
+  cancel-in-progress: false
+
 jobs:
   pre-commit:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: arc-runners
+      labels: x64
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
