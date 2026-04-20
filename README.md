@@ -38,13 +38,7 @@ docker build \
 
 ## GitHub Actions Publishing
 
-The workflow at `.github/workflows/publish-image.yml` targets the ARC runner scale set name directly:
-
-- `arc-runners`
-
-In this GitHub org, the ARC runners are shared organization runners in the `Default` runner group. For ARC scale sets, GitHub expects `runs-on` to be the scale set name or configured scale set label, not standard self-hosted labels like `self-hosted`, `linux`, and `x64`.
-
-For manual runs, you can override the target scale set with the `runner_label` workflow input if you register an additional ARC runner scale set.
+The workflow at `.github/workflows/publish-image.yml` runs on `ubuntu-latest`.
 
 The workflow:
 
@@ -70,12 +64,9 @@ Expected repository configuration:
 
 ## Builder Trust Boundary
 
-Because Vault is read during the image build workflow, the self-hosted builder must already be able to connect to Vault.
+Because Vault is read during the image build workflow, the GitHub Actions runner must be able to validate the Vault server certificate chain.
 
-That means one of these must be true before the workflow runs:
-
-- the self-hosted runner host already trusts the Vault server certificate chain
-- `VAULT_SERVER_CA_PEM` is set so `hashicorp/vault-action` can validate Vault explicitly
+That means `VAULT_SERVER_CA_PEM` must be set so `hashicorp/vault-action` can validate Vault explicitly.
 
 This is separate from the CA being baked into the ARC runner image. The builder needs Vault trust first; the built image then carries the homelab CA for downstream jobs.
 
