@@ -75,6 +75,21 @@ That means one of these must be true before the workflow runs:
 
 This is separate from the CA being baked into the ARC runner image. The builder needs Vault trust first; the built image then carries the homelab CA for downstream jobs.
 
+## Quality Checks
+
+The repo includes `.pre-commit-config.yaml` and `.github/workflows/pre-commit.yml` to run:
+
+- `gitleaks`
+- `hadolint` for the Dockerfile
+- basic YAML and whitespace checks
+
+Local usage:
+
+```bash
+python3 -m pip install pre-commit
+pre-commit run --all-files
+```
+
 ## ARC Usage
 
 Point your ARC runner scale set at the published image:
