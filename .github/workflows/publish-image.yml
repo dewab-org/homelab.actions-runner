@@ -87,6 +87,7 @@ jobs:
           url: ${{ vars.VAULT_ADDR }}
           path: ${{ vars.VAULT_AUTH_PATH || env.DEFAULT_VAULT_AUTH_PATH }}
           method: jwt
+          jwtGithubAudience: https://github.com/${{ github.repository_owner }}
           role: ${{ vars.VAULT_AUTH_ROLE }}
           caCertificate: ${{ steps.vault_tls.outputs.ca_b64 }}
           secrets: |
