@@ -19,7 +19,7 @@ Packer and Terraform are fetched in a separate builder stage and only the final 
 
 ## Build-Time CA Injection
 
-The CA is fetched from Vault in GitHub Actions and passed to Docker BuildKit as a secret. The Docker build installs it into `/usr/local/share/ca-certificates/` and runs `update-ca-certificates`, so the trust store is present in the final image without carrying Vault credentials into the container.
+The CA is stored as an organization Actions secret and passed to Docker BuildKit as a secret during the publish workflow. The Docker build installs it into `/usr/local/share/ca-certificates/` and runs `update-ca-certificates`, so the trust store is present in the final image without carrying long-lived credentials into the container.
 
 Local build example:
 
@@ -34,43 +34,18 @@ docker build \
 
 ## GitHub Actions Publishing
 
-The workflow at `.github/workflows/publish-image.yml` targets the ARC runner scale set name directly:
-
-- `arc-runners`
-
-The job bootstraps a rootless Docker daemon on the runner before invoking Buildx, so the workflow does not depend on a pre-mounted host Docker socket.
+The workflow at `.github/workflows/publish-image.yml` runs on `ubuntu-latest` and uses the hosted runner's Docker Engine directly.
 
 The workflow:
 
-1. Authenticates to Vault with GitHub OIDC.
-2. Reads the CA PEM from Vault.
-3. Resolves the latest stable Packer and Terraform releases from GitHub.
-4. Builds the image.
-5. Publishes it to `ghcr.io/<owner>/actions-runner`.
+1. Reads the CA PEM from the `HOMELAB_CA_PEM` Actions secret.
+2. Resolves the latest stable Packer and Terraform releases from GitHub.
+3. Builds the image.
+4. Publishes it to `ghcr.io/<owner>/actions-runner`.
 
 Expected repository configuration:
 
-### Repository Variables
-
-- `VAULT_ADDR`: Vault base URL, for example `https://vault.viking.org`
-- `VAULT_AUTH_PATH`: Vault JWT auth mount used by GitHub Actions, for example `github-actions`
-- `VAULT_AUTH_ROLE`: Vault role bound to this repository
-- `VAULT_CA_SECRET_PATH`: KV v2 path that contains the CA PEM, for example `secret/data/github-arc`
-- `VAULT_CA_SECRET_KEY`: field name in that secret, for example `ca_crt`
-
-### Repository Secrets
-
-- `VAULT_SERVER_CA_PEM`: PEM for validating Vault itself; this can be stored as a repository secret or an organization secret granted to this repository
-
-## Builder Trust Boundary
-
-Because Vault is read during the image build workflow, the runner must be able to validate the Vault server certificate chain.
-
-That means `VAULT_SERVER_CA_PEM` must be set so `hashicorp/vault-action` can validate Vault explicitly.
-
-This is separate from the CA being baked into the ARC runner image. The builder needs Vault trust first; the built image then carries the homelab CA for downstream jobs.
-
-The publish workflow bootstraps Vault TLS trust before `hashicorp/vault-action` runs by writing `VAULT_SERVER_CA_PEM` to a temporary file and exporting it through `NODE_EXTRA_CA_CERTS`.
+- Organization or repository secret `HOMELAB_CA_PEM`: the PEM bundle baked into the runner image
 
 ## Quality Checks
 
