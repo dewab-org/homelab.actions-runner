@@ -36,9 +36,13 @@ docker build \
 
 ## GitHub Actions Publishing
 
-The workflow at `.github/workflows/publish-image.yml` runs on the `arc-runners` GitHub Actions runner group with the `x64` label by default.
+The workflow at `.github/workflows/publish-image.yml` targets the ARC runner scale set name directly:
 
-For manual runs, you can override the third label with the `runner_label` workflow input if your builder uses a different label set.
+- `arc-runners`
+
+In this GitHub org, the ARC runners are shared organization runners in the `Default` runner group. For ARC scale sets, GitHub expects `runs-on` to be the scale set name or configured scale set label, not standard self-hosted labels like `self-hosted`, `linux`, and `x64`.
+
+For manual runs, you can override the target scale set with the `runner_label` workflow input if you register an additional ARC runner scale set.
 
 The workflow:
 
