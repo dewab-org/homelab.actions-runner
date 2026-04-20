@@ -2,6 +2,11 @@ name: Publish Runner Image
 
 on:
   workflow_dispatch:
+    inputs:
+      runner_label:
+        description: Optional ARC runner scale set name
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -27,7 +32,7 @@ env:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.inputs.runner_label || 'arc-runners' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -87,6 +92,12 @@ jobs:
           caCertificate: ${{ steps.vault_tls.outputs.ca_b64 }}
           secrets: |
             ${{ vars.VAULT_CA_SECRET_PATH || env.DEFAULT_VAULT_CA_SECRET_PATH }} ${{ vars.VAULT_CA_SECRET_KEY || env.DEFAULT_VAULT_CA_SECRET_KEY }} | homelab_ca
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5
+        with:
+          rootless: true
+          set-host: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

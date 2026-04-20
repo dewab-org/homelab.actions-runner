@@ -38,7 +38,11 @@ docker build \
 
 ## GitHub Actions Publishing
 
-The workflow at `.github/workflows/publish-image.yml` runs on `ubuntu-latest`.
+The workflow at `.github/workflows/publish-image.yml` targets the ARC runner scale set name directly:
+
+- `arc-runners`
+
+The job bootstraps a rootless Docker daemon on the runner before invoking Buildx, so the workflow does not depend on a pre-mounted host Docker socket.
 
 The workflow:
 
@@ -64,7 +68,7 @@ Expected repository configuration:
 
 ## Builder Trust Boundary
 
-Because Vault is read during the image build workflow, the GitHub Actions runner must be able to validate the Vault server certificate chain.
+Because Vault is read during the image build workflow, the runner must be able to validate the Vault server certificate chain.
 
 That means `VAULT_SERVER_CA_PEM` must be set so `hashicorp/vault-action` can validate Vault explicitly.
 
