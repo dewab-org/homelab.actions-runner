@@ -13,6 +13,8 @@ The image extends `ghcr.io/actions/actions-runner:latest`, installs a homelab CA
 - `xorriso`
 - `git`, `curl`, `jq`, `rsync`, `zip`, `unzip`
 
+Packer and Terraform are fetched in a separate builder stage and only the final binaries are copied into the runtime image.
+
 ## Why Ansible Uses Python 3.11
 
 `ansible-core` 2.15 officially targets Python 3.9-3.11 for controller-side execution. This image keeps `python3` on 3.12 for general use, and installs Ansible 2.15 in `/opt/ansible-2.15` on Python 3.11 so both requirements can coexist cleanly.

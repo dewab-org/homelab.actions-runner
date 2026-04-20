@@ -1,5 +1,23 @@
 # syntax=docker/dockerfile:1.7
 
+FROM debian:bookworm-slim AS hashicorp-builder
+
+ARG PACKER_VERSION=1.14.2
+ARG TERRAFORM_VERSION=1.14.6
+
+COPY scripts/install-hashicorp-release.sh /usr/local/bin/install-hashicorp-release.sh
+
+RUN chmod 0755 /usr/local/bin/install-hashicorp-release.sh \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN /usr/local/bin/install-hashicorp-release.sh packer "${PACKER_VERSION}" \
+    && /usr/local/bin/install-hashicorp-release.sh terraform "${TERRAFORM_VERSION}"
+
 ARG RUNNER_IMAGE=ghcr.io/actions/actions-runner:latest
 FROM ${RUNNER_IMAGE}
 
@@ -14,13 +32,12 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PATH=/opt/ansible-2.15/bin:${PATH}
 
-COPY scripts/install-hashicorp-release.sh /usr/local/bin/install-hashicorp-release.sh
+COPY --from=hashicorp-builder /usr/local/bin/packer /usr/local/bin/packer
+COPY --from=hashicorp-builder /usr/local/bin/terraform /usr/local/bin/terraform
 
-RUN chmod 0755 /usr/local/bin/install-hashicorp-release.sh \
-    && apt-get update \
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        curl \
         git \
         jq \
         openssh-client \
@@ -35,9 +52,6 @@ RUN chmod 0755 /usr/local/bin/install-hashicorp-release.sh \
         xorriso \
         zip \
     && rm -rf /var/lib/apt/lists/*
-
-RUN /usr/local/bin/install-hashicorp-release.sh packer "${PACKER_VERSION}" \
-    && /usr/local/bin/install-hashicorp-release.sh terraform "${TERRAFORM_VERSION}"
 
 RUN python3 -m pip install --upgrade pip setuptools wheel \
     && python3.11 -m venv /opt/ansible-2.15 \
