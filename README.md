@@ -81,13 +81,11 @@ The publish workflow bootstraps Vault TLS trust before `hashicorp/vault-action` 
 
 ## Quality Checks
 
-The repo includes `.pre-commit-config.yaml` and `.github/workflows/pre-commit.yml` to run:
+The repo includes `.pre-commit-config.yaml` for local checks:
 
 - `gitleaks`
 - `hadolint` for the Dockerfile
 - basic YAML and whitespace checks
-
-Both workflows share the same concurrency group, so only one Actions job from this repository runs at a time.
 
 Local usage:
 
