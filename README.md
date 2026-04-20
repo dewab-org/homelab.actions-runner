@@ -64,7 +64,7 @@ Expected repository configuration:
 
 ### Repository Secrets
 
-- `VAULT_SERVER_CA_PEM`: optional PEM for validating Vault itself from GitHub-hosted runners if Vault is not using a publicly trusted certificate
+- `VAULT_SERVER_CA_PEM`: optional PEM for validating Vault itself; if unset, the workflow falls back to the certificate chain presented by `VAULT_ADDR`
 
 ## Builder Trust Boundary
 
@@ -76,6 +76,8 @@ That means one of these must be true before the workflow runs:
 - `VAULT_SERVER_CA_PEM` is set so `hashicorp/vault-action` can validate Vault explicitly
 
 This is separate from the CA being baked into the ARC runner image. The builder needs Vault trust first; the built image then carries the homelab CA for downstream jobs.
+
+The publish workflow bootstraps Vault TLS trust before `hashicorp/vault-action` runs by preferring `VAULT_SERVER_CA_PEM` and otherwise exporting the certificate chain served by `VAULT_ADDR` through `NODE_EXTRA_CA_CERTS`.
 
 ## Quality Checks
 
