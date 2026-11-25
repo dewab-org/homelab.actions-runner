@@ -9,7 +9,9 @@ ARG TERRAFORM_VERSION=1.14.6
 # Vault CLI: every in-cluster workflow that reads a secret used to download
 # this per job (helmfile-apply in homelab.k8s-workloads, and the image publish
 # pipelines). Baking it in removes an external download from every run.
-ARG VAULT_VERSION=1.17.3
+# Keep it on the Vault server's version (2.2.2 on 2026-11-25): 1.17.3, copied
+# from the old per-job download, carried 3 fixable critical findings.
+ARG VAULT_VERSION=2.2.2
 # buildctl drives the in-cluster BuildKit daemon
 # (homelab.k8s-workloads/buildkit). Keep this in step with that chart's
 # appVersion: client and daemon are not guaranteed compatible across a wide
@@ -49,7 +51,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PACKER_VERSION=1.14.2
 ARG TERRAFORM_VERSION=1.14.6
 ARG ANSIBLE_CORE_VERSION=2.15.13
-ARG VAULT_VERSION=1.17.3
+ARG VAULT_VERSION=2.2.2
 ARG BUILDKIT_VERSION=v0.35.1
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
