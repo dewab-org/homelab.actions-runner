@@ -15,6 +15,13 @@ repos:
         files: (^|/)(Dockerfile|.*\.Dockerfile)$
         args:
           - --ignore=DL3008
+          # DL3066 (non-numeric user-id) fires on `USER root` / `USER runner`,
+          # which this Dockerfile has always had and which the upstream
+          # actions-runner base image defines. hadolint fails on info-level
+          # findings by default, so without this the hook rejects the
+          # Dockerfile as committed, untouched. A numeric uid would satisfy the
+          # rule by hardcoding 1001 and silently break if upstream changes it.
+          - --ignore=DL3066
           - --ignore=DL3013
 
   - repo: https://github.com/gitleaks/gitleaks

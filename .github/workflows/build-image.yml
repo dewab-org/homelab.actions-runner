@@ -1,0 +1,294 @@
+# Reusable container image pipeline for the estate.
+#
+# Builds on the in-cluster arc-runners scale set and publishes to
+# harbor.lab.local (and GHCR by default). Callers supply only what differs.
+#
+# Why it is built this way, so the next person does not undo it:
+#
+#   * No docker/setup-buildx-action or docker/build-push-action. The scale set
+#     runs containerMode: kubernetes, so a job gets a pod with no Docker
+#     daemon, and the runner image has no docker CLI. buildctl talks to the
+#     BuildKit daemon in homelab.k8s-workloads/buildkit over gRPC and needs
+#     neither.
+#   * No docker/login-action either: `docker login` wants a daemon. The
+#     credentials are written straight to ~/.docker/config.json, which buildctl
+#     reads and forwards to the builder.
+#   * One build, several --output names: Harbor and GHCR are published from a
+#     single build rather than built or pushed twice.
+#   * The Harbor robot credential comes from Vault via the runner's own
+#     Kubernetes ServiceAccount token, so no registry secret is stored in
+#     GitHub.
+#
+# Callers must grant the job `packages: write` for the GHCR push, and pass
+# `secrets: inherit` only if they need their own secrets; this workflow needs
+# none beyond the automatic GITHUB_TOKEN.
+name: Build and publish image
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: Repository name inside the registry (e.g. stork-server).
+        required: true
+        type: string
+      version:
+        description: Primary tag (e.g. 2.6.0).
+        required: true
+        type: string
+      image_revision:
+        description: >-
+          Rebuild counter. When set, also publishes <version>-r<N>, an
+          immutable tag deployments can pin so a rebuild of the same upstream
+          version actually rolls out instead of being skipped by
+          imagePullPolicy IfNotPresent on the reused <version> tag.
+        default: ""
+        type: string
+      context:
+        description: Build context directory, relative to the repo root.
+        default: "."
+        type: string
+      dockerfile:
+        description: Dockerfile filename, relative to `context`.
+        default: Dockerfile
+        type: string
+      target:
+        description: Optional multi-stage build target.
+        default: ""
+        type: string
+      platform:
+        default: linux/amd64
+        type: string
+      build_args:
+        description: Newline-separated KEY=VALUE build args.
+        default: ""
+        type: string
+      secret_files:
+        description: >-
+          Newline-separated id=path BuildKit secrets, paths relative to the
+          repo root (e.g. homelab_ca=ca/root_ca_bundle.pem).
+        default: ""
+        type: string
+      extra_tags:
+        description: Newline-separated additional bare tags (e.g. latest).
+        default: ""
+        type: string
+      harbor_project:
+        default: homelab
+        type: string
+      push_ghcr:
+        description: Also publish to ghcr.io/<owner>/<image_name>.
+        default: true
+        type: boolean
+      no_cache:
+        description: >-
+          Skip the shared BuildKit cache. Required for rebuilds whose whole
+          purpose is re-running package upgrades - a cache hit silently
+          defeats them.
+        default: false
+        type: boolean
+      runs_on:
+        default: arc-runners
+        type: string
+      buildkit_endpoint:
+        default: tcp://buildkit.buildkit.svc.cluster.local:1234
+        type: string
+      vault_addr:
+        default: https://vault.viking.org
+        type: string
+      vault_role:
+        description: Vault Kubernetes auth role granting read on secret/harbor.
+        default: images-ci
+        type: string
+    outputs:
+      harbor_ref:
+        description: The immutable Harbor reference that was published.
+        value: ${{ jobs.build.outputs.harbor_ref }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: ${{ inputs.image_name }}:${{ inputs.version }}
+    runs-on: ${{ inputs.runs_on }}
+    outputs:
+      harbor_ref: ${{ steps.refs.outputs.harbor_ref }}
+    env:
+      VAULT_ADDR: ${{ inputs.vault_addr }}
+      # No VAULT_CACERT: the runner image installs the estate CA and runs
+      # update-ca-certificates, so the system trust store already verifies
+      # vault.viking.org and harbor.lab.local. Do not point it at a repo path -
+      # *.pem is gitignored in several repos, so the file exists locally and is
+      # absent in CI, which fails with "Error loading CA File".
+      BUILDKIT_HOST: ${{ inputs.buildkit_endpoint }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Both are baked into the runner image; downloaded only if an older
+      # runner image is still in use, so this works during a runner rollout.
+      - name: Ensure buildctl and the Vault CLI are present
+        run: |
+          set -euo pipefail
+          bindir="${RUNNER_TEMP}/bin"; mkdir -p "$bindir"
+          case "$(uname -m)" in
+            x86_64)  arch=amd64 ;;
+            aarch64) arch=arm64 ;;
+            *) echo "::error::unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          if ! command -v buildctl >/dev/null 2>&1; then
+            # Keep in step with the buildkit chart's appVersion.
+            v=v0.35.1
+            curl -fsSL -o "${RUNNER_TEMP}/bk.tgz" \
+              "https://github.com/moby/buildkit/releases/download/${v}/buildkit-${v}.linux-${arch}.tar.gz"
+            tar -xzf "${RUNNER_TEMP}/bk.tgz" -C "${RUNNER_TEMP}" bin/buildctl
+            chmod 0755 "$bindir/buildctl"; echo "$bindir" >> "$GITHUB_PATH"
+          fi
+          if ! command -v vault >/dev/null 2>&1; then
+            v=1.17.3
+            curl -fsSL -o "${RUNNER_TEMP}/vault.zip" \
+              "https://releases.hashicorp.com/vault/${v}/vault_${v}_linux_${arch}.zip"
+            unzip -o "${RUNNER_TEMP}/vault.zip" -d "$bindir" vault
+            chmod 0755 "$bindir/vault"; echo "$bindir" >> "$GITHUB_PATH"
+          fi
+          export PATH="$bindir:$PATH"
+          buildctl --version && vault version
+
+      - name: Read the Harbor robot credential from Vault
+        run: |
+          set -euo pipefail
+          sa=/var/run/secrets/kubernetes.io/serviceaccount/token
+          [ -r "$sa" ] || { echo "::error::no ServiceAccount token - is runs_on an in-cluster runner?" >&2; exit 1; }
+          token="$(vault write -field=token auth/kubernetes/login \
+            role='${{ inputs.vault_role }}' jwt="$(cat "$sa")")"
+          [ -n "$token" ] || { echo "::error::Vault login returned an empty token" >&2; exit 1; }
+          echo "::add-mask::$token"
+          user="$(VAULT_TOKEN="$token" vault kv get -field=ROBOT_CI_NAME secret/harbor)"
+          pass="$(VAULT_TOKEN="$token" vault kv get -field=ROBOT_CI_SECRET secret/harbor)"
+          # Assert the policy actually granted the read; a successful login is
+          # not evidence that the secret came back.
+          [ -n "$user" ] && [ -n "$pass" ] || {
+            echo "::error::Harbor robot credential missing from secret/harbor" >&2; exit 1; }
+          echo "::add-mask::$pass"
+          echo "HARBOR_ROBOT_USER=$user" >> "$GITHUB_ENV"
+          echo "HARBOR_ROBOT_PASS=$pass" >> "$GITHUB_ENV"
+
+      - name: Write registry credentials for buildctl
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.docker; umask 077
+          harbor_auth="$(printf '%s:%s' "$HARBOR_ROBOT_USER" "$HARBOR_ROBOT_PASS" | base64 -w0)"
+          ghcr_auth="$(printf '%s:%s' "$GITHUB_ACTOR" "$GHCR_TOKEN" | base64 -w0)"
+          cat > ~/.docker/config.json <<JSON
+          {"auths":{"harbor.lab.local":{"auth":"${harbor_auth}"},"ghcr.io":{"auth":"${ghcr_auth}"}}}
+          JSON
+          jq -e '.auths | keys' ~/.docker/config.json
+
+      - name: Resolve image references
+        id: refs
+        run: |
+          set -euo pipefail
+          harbor="harbor.lab.local/${{ inputs.harbor_project }}/${{ inputs.image_name }}"
+          ghcr="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}"
+          tags=("${{ inputs.version }}")
+          [ -n "${{ inputs.image_revision }}" ] && tags+=("${{ inputs.version }}-r${{ inputs.image_revision }}")
+          while IFS= read -r t; do
+            t="$(echo "$t" | tr -d '\r' | xargs)"; [ -n "$t" ] && tags+=("$t")
+          done <<< "${{ inputs.extra_tags }}"
+          names=()
+          for t in "${tags[@]}"; do
+            names+=("${harbor}:${t}")
+            [ "${{ inputs.push_ghcr }}" = "true" ] && names+=("${ghcr}:${t}")
+          done
+          printf 'names=%s\n' "$(IFS=,; echo "${names[*]}")" >> "$GITHUB_OUTPUT"
+          printf 'tags=%s\n' "$(IFS=,; echo "${tags[*]}")" >> "$GITHUB_OUTPUT"
+          immutable="${{ inputs.version }}"
+          [ -n "${{ inputs.image_revision }}" ] && immutable="${{ inputs.version }}-r${{ inputs.image_revision }}"
+          printf 'harbor_ref=%s\n' "${harbor}:${immutable}" >> "$GITHUB_OUTPUT"
+          printf 'immutable=%s\n' "${immutable}" >> "$GITHUB_OUTPUT"
+          echo "publishing: $(IFS=,; echo "${names[*]}")"
+
+      - name: Build and publish
+        env:
+          MATRIX_BUILD_ARGS: ${{ inputs.build_args }}
+          SECRET_FILES: ${{ inputs.secret_files }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r line; do
+            line="$(echo "$line" | tr -d '\r' | xargs)"
+            [ -n "$line" ] && args+=(--opt "build-arg:$line")
+          done <<< "${MATRIX_BUILD_ARGS}"
+          while IFS= read -r s; do
+            s="$(echo "$s" | tr -d '\r' | xargs)"
+            [ -n "$s" ] && args+=(--secret "id=${s%%=*},src=${s#*=}")
+          done <<< "${SECRET_FILES}"
+          [ -n "${{ inputs.target }}" ] && args+=(--opt "target=${{ inputs.target }}")
+          [ "${{ inputs.no_cache }}" = "true" ] && args+=(--no-cache)
+
+          buildctl build \
+            --frontend dockerfile.v0 \
+            --local "context=${{ inputs.context }}" \
+            --local "dockerfile=${{ inputs.context }}" \
+            --opt "filename=${{ inputs.dockerfile }}" \
+            --opt "platform=${{ inputs.platform }}" \
+            "${args[@]}" \
+            --output "type=image,\"name=${{ steps.refs.outputs.names }}\",push=true"
+
+      # The registries are the artifact of record. A zero exit from the build
+      # is not evidence that a tag can be pulled back.
+      - name: Verify published tags
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          accept="application/vnd.oci.image.index.v1+json"
+          accept="${accept},application/vnd.docker.distribution.manifest.v2+json"
+          accept="${accept},application/vnd.oci.image.manifest.v1+json"
+          # The registries do not take the same auth on /v2/: Harbor accepts
+          # basic, GHCR answers 401 to it and wants a bearer token that is the
+          # base64 of the PAT.
+          ghcr_bearer="$(printf '%s' "${GHCR_TOKEN}" | base64 -w0)"
+          fail=0
+          check() {
+            local label="$1" url="$2"; shift 2
+            local code
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "$@" -H "Accept: ${accept}" "$url" || echo 000)
+            echo "  ${label} -> HTTP ${code}"
+            [ "$code" = "200" ] || fail=1
+          }
+          IFS=',' read -ra tags <<< "${{ steps.refs.outputs.tags }}"
+          for t in "${tags[@]}"; do
+            check "harbor.lab.local/${{ inputs.harbor_project }}/${{ inputs.image_name }}:${t}" \
+              "https://harbor.lab.local/v2/${{ inputs.harbor_project }}/${{ inputs.image_name }}/manifests/${t}" \
+              -u "${HARBOR_ROBOT_USER}:${HARBOR_ROBOT_PASS}"
+            if [ "${{ inputs.push_ghcr }}" = "true" ]; then
+              check "ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${t}" \
+                "https://ghcr.io/v2/${{ github.repository_owner }}/${{ inputs.image_name }}/manifests/${t}" \
+                -H "Authorization: Bearer ${ghcr_bearer}"
+            fi
+          done
+          [ "$fail" = "0" ] || { echo "::error::a published tag is not retrievable" >&2; exit 1; }
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ inputs.image_name }}"
+            echo ""
+            echo "| tag | Harbor | GHCR |"
+            echo "| --- | --- | --- |"
+            IFS=',' read -ra tags <<< "${{ steps.refs.outputs.tags }}"
+            harbor_repo="harbor.lab.local/${{ inputs.harbor_project }}/${{ inputs.image_name }}"
+            ghcr_repo="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}"
+            for t in "${tags[@]}"; do
+              if [ "${{ inputs.push_ghcr }}" = "true" ]; then
+                g="\`${ghcr_repo}:${t}\`"
+              else
+                g="-"
+              fi
+              echo "| \`${t}\` | \`${harbor_repo}:${t}\` | ${g} |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
