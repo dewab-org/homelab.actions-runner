@@ -61,6 +61,22 @@ COPY --from=hashicorp-builder /usr/local/bin/terraform /usr/local/bin/terraform
 COPY --from=hashicorp-builder /usr/local/bin/vault /usr/local/bin/vault
 COPY --from=hashicorp-builder /usr/local/bin/buildctl /usr/local/bin/buildctl
 
+# Drop npm from the runner's bundled Node 20. JavaScript actions are run with
+# the node binary under externals/; npm there is never on PATH and never
+# invoked. Upstream's Node 20 npm still vendors tar 6.2.1 (critical, fixed in
+# 7.5.19), in ghcr.io/actions/actions-runner itself as of runner 2.338.2;
+# Node 24's npm is already on a fixed tar. The check fails the build if any
+# node-tar older than 7.5.19 is left anywhere under externals, so a future
+# runner that brings one back is caught here and not by a scan in the cluster.
+RUN rm -rf /home/runner/externals/node20/lib/node_modules/npm \
+           /home/runner/externals/node20/bin/npm \
+           /home/runner/externals/node20/bin/npx \
+    && /home/runner/externals/node20/bin/node --version \
+    && old="$(find /home/runner/externals -path '*node_modules/tar/package.json' \
+              -exec sh -c 'v=$(sed -n "s/.*\"version\": *\"\([0-9.]*\)\".*/\1/p" "$1" | head -1); \
+                           [ "$(printf "%s\n7.5.19\n" "$v" | sort -V | head -1)" = "7.5.19" ] || echo "$v $1"' _ {} \;)" \
+    && if [ -n "$old" ]; then echo "node-tar older than 7.5.19 still present:" >&2; echo "$old" >&2; exit 1; fi
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
